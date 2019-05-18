@@ -37,6 +37,7 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
     fileprivate let paneSizes: [NSSize]
     fileprivate var control: NSSegmentedControl?
 
+    fileprivate var isAnimating = false
     fileprivate var _index = 0
     var index: Int {
         get {
@@ -76,14 +77,18 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
     internal override func showWindow(_ sender: Any?) {
         self.preferenceWindowWillShow(withPane: panes[index])
+        self.panes[index].paneWillAppear(inWindowController: self)
         NSApp.activate(ignoringOtherApps: true)
         super.showWindow(sender)
+        self.panes[index].paneDidAppear(inWindowController: self)
     }
 
     internal func windowWillClose(_ notification: Notification) {
+        self.panes[index].paneWillDisappear()
         self.preferenceWindowWillClose(withPane: panes[index])
+        self.panes[index].paneDidDisappear()
     }
-
+    
     func preferenceWindowWillShow(withPane pane: PreferencePane) {}
     func preferenceWindowWillClose(withPane pane: PreferencePane) {}
 
@@ -100,7 +105,7 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
             oldController.paneWillDisappear()
             newController.paneWillAppear(inWindowController: self)
 
-            let newFrame = getWindowRect(forNewIndex: index)
+            let newFrame = getWindowRect(comparedTo: index)
             window!.setFrame(newFrame, display: true)
 
             control!.selectSegment(withTag: index)
@@ -109,7 +114,7 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
 
             oldController.paneDidDisappear()
             newController.paneDidAppear(inWindowController: self)
-        } else {
+        } else if !isAnimating {
             self.control!.selectSegment(withTag: index)
             self.changeTab(self.control!)
         }
@@ -140,9 +145,9 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
         return nil
     }
 
-    internal func getWindowRect(forNewIndex newIndex: Int) -> NSRect {
-        let oldContentSize = self.paneSizes[index]
-        let newContentSize = self.paneSizes[newIndex]
+    internal func getWindowRect(comparedTo otherIndex: Int) -> NSRect {
+        let oldContentSize = self.paneSizes[otherIndex]
+        let newContentSize = self.paneSizes[index]
 
         let frameSize = self.window!.frame.size
         let titleSize = NSMakeSize(frameSize.width - oldContentSize.width,
@@ -161,9 +166,16 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
         if index == control.indexOfSelectedItem {
             return
         }
+        if isAnimating {
+            control.selectSegment(withTag: index)
+            return
+        }
+        let oldIndex = index
+        self._index = control.indexOfSelectedItem
+        isAnimating = true
 
-        let oldController = self.panes[index]
-        let newController = self.panes[control.indexOfSelectedItem]
+        let oldController = self.panes[oldIndex]
+        let newController = self.panes[index]
 
         oldController.paneWillDisappear()
         newController.paneWillAppear(inWindowController: self)
@@ -172,13 +184,14 @@ class NSPreferenceController: NSWindowController, NSWindowDelegate, NSToolbarDel
             NSAnimationContext.current.duration = 0.5
             window!.contentView = nil
 
-            let newRect = getWindowRect(forNewIndex: control.indexOfSelectedItem)
+            let newRect = getWindowRect(comparedTo: oldIndex)
             self.window!.animator().setFrame(newRect, display: true, animate: true)
         }, completionHandler: {
             self._index = control.indexOfSelectedItem
             self.contentViewController = newController
             oldController.paneDidDisappear()
             newController.paneDidAppear(inWindowController: self)
+            self.isAnimating = false
         })
     }
 }
